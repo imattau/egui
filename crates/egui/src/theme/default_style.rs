@@ -147,6 +147,12 @@ impl StyleProvider<TextEditStyle> for DefaultStyle {
             &style.visuals.widgets.inactive,
         );
 
+        let align2 = if classes.has_class(&TextEdit::CLASS_SINGLELINE) {
+            Align2::LEFT_CENTER
+        } else {
+            Align2::LEFT_TOP
+        };
+
         TextEditStyle {
             atom_layout: AtomLayoutStyle {
                 frame: Frame {
@@ -160,7 +166,7 @@ impl StyleProvider<TextEditStyle> for DefaultStyle {
                 min_size: Vec2::new(0.0, style.spacing.interact_size.y),
                 gap: style.spacing.icon_spacing,
                 text_style: text,
-                align2: Some(Align2::LEFT_TOP),
+                align2: Some(align2),
                 ..Default::default()
             },
             hint_text_color: style.visuals.weak_text_color(),

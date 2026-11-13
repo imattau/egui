@@ -105,6 +105,9 @@ impl TextEdit<'_> {
     /// Present on a text edit whose buffer can't be edited.
     pub const CLASS_READ_ONLY: ClassName = ClassName::from_static("egui::text_edit::read_only");
 
+    /// Present on a single-line text edit.
+    pub const CLASS_SINGLELINE: ClassName = ClassName::from_static("egui::text_edit::singleline");
+
     pub fn load_state(ctx: &Context, id: Id) -> Option<TextEditState> {
         TextEditState::load(ctx, id)
     }
@@ -413,7 +416,12 @@ impl<'t> TextEdit<'t> {
     #[deprecated = "Use `align` instead"]
     #[inline]
     pub fn horizontal_align(mut self, align: Align) -> Self {
-        self.align.get_or_insert(Align2::LEFT_TOP).set_x(align);
+        let default = if self.multiline {
+            Align2::LEFT_TOP
+        } else {
+            Align2::LEFT_CENTER
+        };
+        self.align.get_or_insert(default).set_x(align);
         self
     }
 
@@ -421,7 +429,12 @@ impl<'t> TextEdit<'t> {
     #[deprecated = "Use `align` instead"]
     #[inline]
     pub fn vertical_align(mut self, align: Align) -> Self {
-        self.align.get_or_insert(Align2::LEFT_TOP).set_y(align);
+        let default = if self.multiline {
+            Align2::LEFT_TOP
+        } else {
+            Align2::LEFT_CENTER
+        };
+        self.align.get_or_insert(default).set_y(align);
         self
     }
 
@@ -534,6 +547,7 @@ impl<'t> TextEdit<'t> {
         });
 
         classes.add_class_if(Self::CLASS_READ_ONLY, !text.is_mutable());
+        classes.add_class_if(Self::CLASS_SINGLELINE, !multiline);
         let TextEditStyle {
             atom_layout: mut atom_layout_style,
             hint_text_color,
@@ -559,6 +573,7 @@ impl<'t> TextEdit<'t> {
             FontSelection::Default => atom_layout_style.text_style.font_id.clone(),
             font_selection => font_selection.resolve(ui.style()),
         };
+        atom_layout_style.text_style.font_id = font_id.clone();
         let row_height = ui.fonts_mut(|f| f.row_height(&font_id));
         let line_height = row_height + ui.spacing().extra_text_line_spacing;
 
@@ -748,8 +763,8 @@ impl<'t> TextEdit<'t> {
                     }
 
                     // Align the hint text the same as the input text so the hint, the
-                    // cursor, and the typed text all share one alignment. The default
-                    // `align` is `LEFT_TOP`, which keeps multi line text edits unchanged.
+                    // cursor, and the typed text all share one alignment. Single-line edits
+                    // default to `LEFT_CENTER` while multi-line edits default to `LEFT_TOP`.
                     atoms.push_right(atom.atom_align(align));
                 }
 
@@ -1629,5 +1644,96 @@ fn check_for_mutating_key_press(
         }
 
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CentralPanel, FontId};
+
+    #[test]
+    fn singleline_centers_vertically_and_uses_font_for_hint_while_multiline_stays_top_aligned() {
+        let ctx = Context::default();
+
+        let mut empty = String::new();
+        let mut filled = String::from("Apps");
+        let mut multi = String::from("Line 1\nLine 2");
+
+        let mut empty_out = None;
+        let mut filled_out = None;
+        let mut multi_out = None;
+
+        let output = ctx.run_ui(Default::default(), |ui| {
+            CentralPanel::default().show(ui, |ui| {
+                empty_out = Some(
+                    TextEdit::singleline(&mut empty)
+                        .hint_text("Search apps")
+                        .font(FontId::proportional(16.0))
+                        .min_size(vec2(200.0, 48.0))
+                        .show(ui),
+                );
+                filled_out = Some(
+                    TextEdit::singleline(&mut filled)
+                        .hint_text("Search apps")
+                        .font(FontId::proportional(16.0))
+                        .min_size(vec2(200.0, 48.0))
+                        .show(ui),
+                );
+                multi_out = Some(
+                    TextEdit::multiline(&mut multi)
+                        .font(FontId::proportional(16.0))
+                        .min_size(vec2(200.0, 120.0))
+                        .show(ui),
+                );
+            });
+        });
+        output.drop_without_applying_deltas();
+
+        let empty_out = empty_out.unwrap();
+        let filled_out = filled_out.unwrap();
+        let multi_out = multi_out.unwrap();
+
+        assert!(
+            (empty_out.text_clip_rect.center().y - empty_out.response.rect.center().y).abs()
+                <= 1.0,
+            "empty singleline text_clip_rect {:?} should be vertically centered in {:?}",
+            empty_out.text_clip_rect,
+            empty_out.response.rect
+        );
+        assert!(
+            (empty_out.galley_pos.y + empty_out.galley.size().y / 2.0
+                - empty_out.response.rect.center().y)
+                .abs()
+                <= 1.0,
+            "empty singleline galley should be vertically centered"
+        );
+        assert!(
+            (empty_out.text_clip_rect.height() - filled_out.text_clip_rect.height()).abs() <= 1.0,
+            "hint text height ({}) should match typed text height ({}) when font is set",
+            empty_out.text_clip_rect.height(),
+            filled_out.text_clip_rect.height()
+        );
+        assert!(
+            (filled_out.text_clip_rect.center().y - filled_out.response.rect.center().y).abs()
+                <= 1.0,
+            "filled singleline text_clip_rect {:?} should be vertically centered in {:?}",
+            filled_out.text_clip_rect,
+            filled_out.response.rect
+        );
+        assert!(
+            (filled_out.galley_pos.y + filled_out.galley.size().y / 2.0
+                - filled_out.response.rect.center().y)
+                .abs()
+                <= 1.0,
+            "filled singleline galley should be vertically centered"
+        );
+
+        assert!(
+            multi_out.galley_pos.y < multi_out.response.rect.center().y,
+            "multiline galley_pos.y ({}) should remain top-aligned in {:?}",
+            multi_out.galley_pos.y,
+            multi_out.response.rect
+        );
     }
 }
